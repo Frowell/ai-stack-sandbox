@@ -1,4 +1,4 @@
-.PHONY: up down ingest ask eval test logs psql shell
+.PHONY: up down ingest ask eval eval-baseline test logs psql shell
 
 up:        ## build + start the whole stack (run from host, or in-container via docker-outside-of-docker)
 	docker compose up -d --build
@@ -14,6 +14,9 @@ ask:       ## ask a question:  make ask Q="why put a gateway in the hot path?"
 
 eval:      ## run the eval gate (non-zero exit on regression)
 	uv run python -m app.evals
+
+eval-baseline: ## record current scores as the regression baseline (after a vetted promotion)
+	uv run python -m app.evals --baseline
 
 test:      ## run the eval gate via pytest (merge gate)
 	uv run pytest -q

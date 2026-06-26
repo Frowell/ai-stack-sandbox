@@ -14,10 +14,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Heavy layout-extraction backends for formats with no dependency-free default.
-# Install only what you need, then register it (see app/layout.py docstring):
-#   pip install '.[layout]'  ->  layout.register("pdf", MyDoclingExtractor()), etc.
-layout = ["docling>=2.0", "pymupdf>=1.24", "python-docx>=1.1", "openpyxl>=3.1"]
+# Light layout-extraction backends for the stub formats. Install what you need,
+# then register it (see app/layout.py): `pip install '.[layout]'`.
+#   pdf -> pymupdf  |  docx -> python-docx  |  xlsx -> openpyxl
+# docling gives best-in-class PDF layout but pulls torch/transformers (~GB); it is
+# intentionally NOT pinned here so the lockfile stays slim -- add it yourself, then
+# layout.register("pdf", MyDoclingExtractor()).
+layout = ["pymupdf>=1.24", "python-docx>=1.1", "openpyxl>=3.1"]
 
 [dependency-groups]
 dev = ["pytest>=8.0", "ruff>=0.6"]

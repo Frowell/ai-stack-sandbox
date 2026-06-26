@@ -1,0 +1,72 @@
+name: ai-stack-sandbox
+
+# Four services. The app talks to all three others by their service name on the
+# `sandbox` network. Every model call goes through `litellm` (the gateway seam);
+# retrieval uses `postgres` (pgvector + full-text); `redis` is the cache layer.
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    volumes:
+      - .:/workspace:cached
+    command: sleep infinity
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/sandbox
+      REDIS_URL: redis://redis:6379/0
+      GATEWAY_BASE_URL: http://litellm:4000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      litellm:
+        condition: service_started
+    networks: [sandbox]
+
+  # Hot-path gateway. Stateless here (no DB) to keep first-run simple; add a
+  # Postgres URL to persist virtual keys / budgets. Config is mounted read-only.
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    ports: ["4000:4000"]
+    volumes:
+      - ./gateway/litellm_config.yaml:/app/config.yaml:ro
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-sandbox-master}
+    networks: [sandbox]
+
+  # Relational + vector + full-text substrate in one container.
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sandbox
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sandbox"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks: [sandbox]
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    networks: [sandbox]
+
+volumes:
+  pgdata:
+
+networks:
+  sandbox:

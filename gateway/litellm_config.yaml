@@ -1,0 +1,28 @@
+# The gateway's whole job is to make provider choice a config decision.
+# The app calls the *aliases* `chat` and `embeddings` and never names a provider.
+model_list:
+  # --- chat (default: OpenAI) ---
+  - model_name: chat
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
+
+  # --- chat via Claude instead: set ANTHROPIC_API_KEY, comment the block above,
+  #     uncomment this one. No application code changes. That is the seam. ---
+  # - model_name: chat
+  #   litellm_params:
+  #     model: anthropic/claude-sonnet-4-6
+  #     api_key: os.environ/ANTHROPIC_API_KEY
+
+  # --- embeddings (Anthropic serves none; OpenAI-compatible used here) ---
+  - model_name: embeddings
+    litellm_params:
+      model: openai/text-embedding-3-small
+      api_key: os.environ/OPENAI_API_KEY
+
+litellm_settings:
+  drop_params: true          # tolerate provider param differences
+  # Caching, guardrails, and logging callbacks attach here in a real deployment.
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

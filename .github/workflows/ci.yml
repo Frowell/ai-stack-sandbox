@@ -1,0 +1,114 @@
+# CI: lint always; the eval gate runs the real suite against a live stack.
+#
+# Two tiers so the workflow is useful everywhere:
+#   - lint        : ruff, no services, no secrets. Fast feedback on every PR/fork.
+#   - eval-gate   : stands up Postgres (pgvector) + the LiteLLM gateway, ingests,
+#                   and runs `pytest` (the eval merge gate). Needs a real
+#                   OPENAI_API_KEY (embeddings + chat + judge all make calls), so
+#                   it is gated on the secret being present and SKIPS cleanly on
+#                   forks / when unset rather than failing red.
+#
+# To enforce these as required checks: Settings -> Branches -> protect `main` and
+# mark `lint` (and `eval-gate`, once OPENAI_API_KEY is set) as required.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync
+      - run: uv run ruff check .
+
+  # Secrets cannot be referenced in a job-level `if:`, so expose presence as an
+  # output that downstream jobs can gate on.
+  gate-check:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        env:
+          KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -n "$KEY" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false (OPENAI_API_KEY not set; eval gate will be skipped)"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  eval-gate:
+    needs: [lint, gate-check]
+    if: needs.gate-check.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: sandbox
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sandbox"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/sandbox
+      GATEWAY_BASE_URL: http://localhost:4000
+      LITELLM_MASTER_KEY: sk-ci-master
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync
+
+      - name: Create vector schema
+        run: >-
+          uv run python -c "import os, psycopg;
+          sql = open('db/init.sql').read();
+          conn = psycopg.connect(os.environ['DATABASE_URL'], autocommit=True);
+          [conn.execute(s) for s in sql.split(';') if s.strip()];
+          print('schema ready')"
+
+      - name: Start LiteLLM gateway
+        run: |
+          docker run -d --name litellm --network host \
+            -e OPENAI_API_KEY -e LITELLM_MASTER_KEY \
+            -v "$PWD/gateway/litellm_config.yaml:/app/config.yaml:ro" \
+            ghcr.io/berriai/litellm:main-stable --config /app/config.yaml --port 4000
+          echo "waiting for gateway..."
+          for i in $(seq 1 40); do
+            if curl -fsS http://localhost:4000/health/liveliness >/dev/null; then
+              echo "gateway up"; exit 0
+            fi
+            sleep 3
+          done
+          echo "gateway did not become healthy"; docker logs litellm | tail -50; exit 1
+
+      - name: Ingest corpus
+        run: uv run python -m app.ingest
+
+      - name: Eval gate (pytest)
+        run: uv run pytest -q
+
+      - name: Gateway logs on failure
+        if: failure()
+        run: docker logs litellm 2>&1 | tail -80 || true

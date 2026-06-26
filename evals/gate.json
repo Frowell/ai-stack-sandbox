@@ -1,0 +1,22 @@
+{
+  "_doc": "Versioned release-gate config. Every value here encodes business or release judgment -- change it only through a reviewed PR, the same as code. Per-case business-value weights live alongside each case in golden.jsonl.",
+  "samples_per_case": 3,
+  "gates": {
+    "overall": 0.70,
+    "weighted": 0.75
+  },
+  "regression": {
+    "max_drop": 0.03
+  },
+  "per_slice": {
+    "alert_below": 0.70,
+    "high_value_weight": 4,
+    "block_high_value_below": 0.60
+  },
+  "expected_models": ["claude-sonnet-4-6", "gpt-4o-mini"],
+  "scorer": {
+    "judge_model": "judge",
+    "keyword_weight": 0.5,
+    "judge_weight": 0.5
+  }
+}

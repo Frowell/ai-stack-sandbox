@@ -1,0 +1,6 @@
+{
+  "_doc": "Baseline scores for the current promoted (model + prompt). Regenerate with `make eval-baseline` after a vetted promotion; CI diffs candidates against this to catch 'got worse but still above the floor'. null => not yet recorded, so the regression gate is skipped and only the absolute floors apply.",
+  "overall": null,
+  "weighted": null,
+  "by_slice": {}
+}

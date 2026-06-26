@@ -6,4 +6,8 @@ from app.evals import run
 
 def test_quality_gate():
     report = run()
-    assert report["passed"], f"quality gate failed: mean={report['mean_score']}"
+    failed = [c["name"] for c in report["checks"] if not c["passed"]]
+    assert report["passed"], (
+        f"quality gate failed: overall={report['overall']} weighted={report['weighted']} "
+        f"failed_checks={failed} alerts={report['alerts']}"
+    )

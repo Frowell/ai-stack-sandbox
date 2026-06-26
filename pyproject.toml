@@ -13,6 +13,12 @@ dependencies = [
     "python-dotenv>=1.0",
 ]
 
+[project.optional-dependencies]
+# Heavy layout-extraction backends for formats with no dependency-free default.
+# Install only what you need, then register it (see app/layout.py docstring):
+#   pip install '.[layout]'  ->  layout.register("pdf", MyDoclingExtractor()), etc.
+layout = ["docling>=2.0", "pymupdf>=1.24", "python-docx>=1.1", "openpyxl>=3.1"]
+
 [dependency-groups]
 dev = ["pytest>=8.0", "ruff>=0.6"]
 

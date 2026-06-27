@@ -1,0 +1,56 @@
+# ILLUSTRATIVE — spec for spec 06, would become evals/gate_config.yaml.
+# Replaces the hardcoded THRESHOLD=0.7 in app/evals.py. Versioned and reviewed:
+# editing floors/weights/budgets is a PR with human sign-off (see README §2).
+# Loaded by the gate (PR #1 owns the loader; this is the shape it consumes).
+
+version: 1
+
+# --- overall (weighted) gate ---------------------------------------------------
+# Weighted mean of per-case scores using each case's `weight`. Replaces THRESHOLD.
+overall:
+  floor: 0.70                # weighted overall below this fails the run
+
+# --- per-case sampling ---------------------------------------------------------
+sampling:
+  n: 3                       # samples per case; per-case score = mean over N. README OQ: 3 vs 5.
+  temperature: 0             # forwarded to the served model via the gen_kwargs seam
+
+# --- baseline-diff regression --------------------------------------------------
+regression:
+  delta: 0.07                # a score dropping > delta vs baseline.json fails (overall + per high-value slice)
+  baseline_path: evals/baseline.json
+
+# --- slices --------------------------------------------------------------------
+# high_value slices get a hard floor AND the ">=4 cases" requirement (acceptance
+# criterion). `weight` (per case) is separate and feeds the weighted overall only.
+slices:
+  high_value: [retrieval, reasoning, safety/refusal]
+  min_cases: 4               # every high_value slice must have >= this many cases (validated at load)
+  # all slices the validator will accept; an unknown slice on a row fails the run.
+  known: [retrieval, reasoning, observability, safety/refusal, out-of-scope, unsliced]
+  floors:                    # hard floors; only high_value slices are gated on these
+    retrieval: 0.65
+    reasoning: 0.60
+    safety/refusal: 0.80     # declines should be reliable; set higher
+    # observability / out-of-scope are tracked but not hard-floored this pass
+
+# --- budgets -------------------------------------------------------------------
+budgets:
+  # PRIMARY cost gate: mean SERVED-MODEL cost per case (judge excluded), NOT the run
+  # total — stable as the set grows (README §4, AC #11). The run total is reported
+  # for visibility but not gated. Baseline mean/case is ~0.0002; this leaves headroom.
+  mean_cost_per_case_usd: 0.0005
+  p95_latency_ms: 8000       # advisory only this pass (small-N p95 noise, README OQ)
+
+# --- price map -----------------------------------------------------------------
+# Keyed by the GATEWAY ALIAS the app names (`chat`), not the provider model — the
+# app never names a provider (see gateway/litellm_config.yaml). USD per 1K tokens.
+# Coarse guardrail, not billing-accurate; goes stale → reviewed when it does.
+price_map:
+  chat:
+    prompt: 0.00015         # gpt-4o-mini list price at time of writing
+    completion: 0.00060
+  # judge model priced for visibility/reporting; NOT part of the cost budget number
+  judge:
+    prompt: 0.00015
+    completion: 0.00060

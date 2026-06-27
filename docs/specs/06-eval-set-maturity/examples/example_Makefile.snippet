@@ -1,0 +1,15 @@
+# ILLUSTRATIVE — spec for spec 06, would add a target to the real Makefile.
+# The existing `eval` / `test` targets stay as-is (they RUN the gate). This adds
+# the deliberate, human-run baseline regenerator that WRITES evals/baseline.json.
+# CI never runs this target (design.md §4: baseline is never auto-updated).
+
+.PHONY: eval-baseline
+
+eval-baseline:  ## regenerate evals/baseline.json (deliberate, reviewed; never run by CI)
+	uv run python -m app.evals --write-baseline
+	@echo "baseline.json regenerated — review the diff and commit it in a dedicated PR"
+
+# Add `eval-baseline` to the .PHONY line at the top of the Makefile and document
+# in the PR description that regenerating the baseline is a reviewed action that
+# must call out any added/removed/renamed `id`s (the id-churn evasion vector,
+# README §3 / design.md §4).

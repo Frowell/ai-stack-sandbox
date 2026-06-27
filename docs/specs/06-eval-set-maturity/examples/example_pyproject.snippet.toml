@@ -1,0 +1,20 @@
+# ILLUSTRATIVE — spec for spec 06, would change pyproject.toml. Not wired in.
+#
+# gate_config.yaml is read with PyYAML. Today pyyaml is present only TRANSITIVELY
+# (it appears in uv.lock via other deps) — it is NOT a declared dependency. The
+# gate must not rely on a transitive pin, so add it explicitly (design.md §7).
+
+[project]
+# ... existing fields unchanged ...
+dependencies = [
+    "openai>=1.40",
+    "psycopg[binary]>=3.2",
+    "redis>=5.0",
+    "langgraph>=0.2.50",
+    "opentelemetry-sdk>=1.27",
+    "opentelemetry-exporter-otlp-proto-http>=1.27",
+    "python-dotenv>=1.0",
+    "pyyaml>=6",          # <-- NEW: explicit dep for evals/gate_config.yaml
+]
+
+# Then run `uv lock` to record the explicit pin, and commit the updated uv.lock.

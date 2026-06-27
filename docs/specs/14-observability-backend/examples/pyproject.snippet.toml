@@ -1,0 +1,18 @@
+# ILLUSTRATIVE — spec for spec 14, not wired-in code.
+# The Langfuse SDK is an OPTIONAL extra, NOT a core dependency: app/score_sink.py
+# imports it lazily and only when EVAL_SCORE_SINK=langfuse. Keeping it out of the
+# core `dependencies` list preserves the invariant "the OTLP path imports no
+# vendor SDK" and keeps the core install light (and Phoenix needs no SDK at all).
+#
+# No new CORE deps are required — opentelemetry-sdk +
+# opentelemetry-exporter-otlp-proto-http are already in [project.dependencies],
+# and opentelemetry.context / trace.format_trace_id ship with the SDK.
+
+[project.optional-dependencies]
+langfuse = ["langfuse>=2.0"]   # pin a concrete version at implementation time
+
+# Install the adapter only when you want the trace->result (scores) direction:
+#   uv sync --extra langfuse
+#
+# CI does NOT install this extra: the integration tests assert against a
+# lightweight OTLP sink, never the Langfuse stack (see testing.md).

@@ -1,0 +1,14 @@
+# ILLUSTRATIVE — .github/dependabot.yml
+# Pinning actions to commit SHAs stops auto-receiving upstream security fixes;
+# Dependabot restores that by opening PRs that bump the pinned SHA (and the
+# version comment). Risk mitigation called out in README "Risks & mitigations".
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"            # scans .github/workflows/*
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "ci"
+    # Each bump PR re-runs `lint` + `eval-gate-result`, so a bad pin is caught by
+    # the same gates this spec hardens.

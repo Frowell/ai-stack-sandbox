@@ -1,0 +1,29 @@
+# ILLUSTRATIVE — a spec, not wired-in config.
+# Shows the ONE compose change caching needs: wire the `litellm` service to Redis.
+# Today docker-compose.yml gives `app` a REDIS_URL but the `litellm` container has
+# NO Redis env at all — so response caching (which runs INSIDE the proxy) has no
+# Redis to reach. This is the same wiring spec 10 (budgets/rate-limits) needs, so
+# add it once and coordinate.
+#
+# Only the `litellm` service is shown; every other service is unchanged.
+
+services:
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable   # spec 07 pins this to a digest
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    ports: ["4000:4000"]
+    volumes:
+      - ./gateway/litellm_config.yaml:/app/config.yaml:ro
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-sandbox-master}
+      # --- NEW: let the proxy itself reach Redis for response caching ---
+      REDIS_HOST: redis          # service name on the `sandbox` network
+      REDIS_PORT: "6379"
+      # REDIS_PASSWORD: ...      # the sandbox redis is unauthenticated; add if secured
+    depends_on:
+      redis:
+        condition: service_started   # caching is fail-open (design.md §7); started is enough
+    networks: [sandbox]

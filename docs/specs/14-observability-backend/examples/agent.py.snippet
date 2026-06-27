@@ -1,0 +1,16 @@
+# ILLUSTRATIVE — spec for spec 14, not wired-in code.
+# The ONLY change to app/agent.py: flush spans before the `make ask` host process
+# exits. Everything else in app/agent.py is unchanged.
+
+# at top, alongside the existing import:
+from .observability import flush, span  # span already imported today; add flush
+
+
+if __name__ == "__main__":
+    import sys
+
+    q = " ".join(sys.argv[1:]) or "What makes an AI stack 'mature'?"
+    try:
+        print(ask(q))
+    finally:
+        flush()  # export the agent.run trace before this short-lived process exits

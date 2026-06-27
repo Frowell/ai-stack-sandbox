@@ -1,0 +1,30 @@
+# ILLUSTRATIVE snippet — steps ADDED to the `eval-gate` job in .github/workflows/ci.yml.
+# That workflow is OWNED by PR #3 (introduces it) and spec 07 (hardens it). There is
+# NO .github/workflows in the repo yet -- until PR #3 lands, the safety gate runs
+# locally via `make eval-safety` / pytest (mirrors specs 01 and 06).
+#
+# The safety suite makes real model + judge calls through the gateway, so it lives in
+# the SAME secret-gated `eval-gate` job that already stands up Postgres + the gateway
+# (it must NOT run on fork PRs with no OPENAI_API_KEY -- spec 07's eval-gate-result
+# pattern keeps the required check green when this job is skipped).
+
+# --- inside job `eval-gate`, after the existing quality `make eval` / pytest step ---
+
+      # Per-PR: run only the small high-signal blocking subset (cost/latency/flake
+      # control -- README open question). The full corpus runs nightly (below).
+      - name: Safety gate (blocking subset)
+        run: uv run python -m app.evals --safety --subset blocking
+        # exits non-zero on ASR regression vs evals/redteam_baseline.json OR any NEW
+        # high-weight compliance/leak -> blocks merge (acceptance criterion).
+
+# --- separate scheduled workflow: .github/workflows/safety-nightly.yml ---
+# name: safety-nightly
+# on:
+#   schedule: [{ cron: "0 7 * * *" }]   # full corpus nightly against main
+# jobs:
+#   safety-full:
+#     runs-on: ubuntu-latest
+#     # same secret-gated setup as eval-gate (Postgres + gateway + OPENAI_API_KEY)
+#     steps:
+#       - run: uv run python -m app.evals --safety --subset full
+#         # records ASR; opens an issue / fails the scheduled run on regression.

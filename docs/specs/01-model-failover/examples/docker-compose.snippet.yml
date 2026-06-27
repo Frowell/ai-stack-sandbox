@@ -1,0 +1,16 @@
+# ILLUSTRATIVE — additions to the `litellm` service in docker-compose.yml.
+# A spec, not wired in. The gateway already reads `env_file: .env`, so these vars
+# flow through to os.environ/... references in litellm_config.yaml. They are
+# listed explicitly under `environment:` only to document the contract and to
+# allow host-shell overrides.
+
+services:
+  litellm:
+    # ...existing image / command / volumes / ports unchanged...
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-sandbox-master}
+      # --- failover: provider creds for the same-model deployments ---
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION_NAME: ${AWS_REGION_NAME:-us-east-1}

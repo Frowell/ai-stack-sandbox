@@ -1,0 +1,15 @@
+# ILLUSTRATIVE snippet for spec 13 — the comment to add to
+# gateway/litellm_config.yaml documenting the drop_params <-> response_format
+# interaction. Only the comment is new; drop_params: true already exists.
+
+litellm_settings:
+  # drop_params: a param a provider/model does NOT support (e.g. response_format
+  # json_schema on a model that lacks it) is SILENTLY DROPPED — the request then
+  # succeeds and returns ordinary free text, with no transport error to catch.
+  # Structured outputs (spec 13) therefore do NOT rely on the gateway to enforce
+  # the schema: app/gateway.chat_structured() ALWAYS validates client-side with
+  # pydantic and raises StructuredOutputError on non-conforming text. Do not
+  # remove that client-side validation on the assumption the gateway guarantees
+  # JSON — with drop_params:true it does not.
+  drop_params: true          # tolerate provider param differences
+  # Caching, guardrails, and logging callbacks attach here in a real deployment.

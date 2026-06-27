@@ -1,0 +1,53 @@
+# ILLUSTRATIVE — a spec, not wired-in CI.
+# Shows the ONE change the eval-gate job needs for cache-bypass: stand up the
+# gateway with caching disabled (design.md §3). Per 07-ci-hardening, the eval gate
+# runs LiteLLM via an inline `docker run ... --config <file>` step (NOT a
+# `services:` block, because litellm needs its mounted config) — so bypass is just
+# pointing --config at the eval (caching-off) config.
+#
+# This is a fragment of .github/workflows/ci.yml's eval-gate job; coordinate the
+# exact job/step names with spec 07 (which owns ci.yml).
+
+jobs:
+  eval-gate:
+    # ... gate-check / secret-detection upstream as defined by PR #3 / spec 07 ...
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16   # spec 07 pins to a digest
+        # ... env / healthcheck ...
+    steps:
+      - uses: actions/checkout@<sha>    # spec 07 pins actions to SHAs
+
+      # Stand up the gateway with the CACHING-OFF config so neither the agent nor
+      # the LLM-judge can be served a stale answer during the eval run.
+      - name: Start gateway (caching disabled for evals)
+        run: |
+          docker run -d --name litellm \
+            -p 4000:4000 \
+            -e OPENAI_API_KEY="${OPENAI_API_KEY}" \
+            -e LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY:-sk-sandbox-master}" \
+            -v "${{ github.workspace }}/gateway/litellm_config.eval.yaml:/app/config.yaml:ro" \
+            ghcr.io/berriai/litellm@sha256:<pinned>  \
+            --config /app/config.yaml --port 4000
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - uses: astral-sh/setup-uv@<sha>  # spec 07
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - run: uv sync --locked           # spec 07: authoritative lock
+
+      # The eval gate runs against the caching-off gateway -> a regression cannot
+      # be hidden by a cached pre-change answer/verdict. Non-zero exit fails CI.
+      - name: Run eval gate
+        run: uv run pytest -q tests/test_evals.py
+
+      # SEPARATE, OPTIONAL job (not on the merge path): run the suite with SEMANTIC
+      # caching ON and assert no score regression vs the caching-off baseline.
+      # This is the "semantic caching shows no eval regression" acceptance check;
+      # it must use a DIFFERENT gateway config (litellm_config.caching.yaml with the
+      # redis-semantic block) and is allowed to be a gated/nightly job since it
+      # costs real provider calls. See testing.md AC-3.

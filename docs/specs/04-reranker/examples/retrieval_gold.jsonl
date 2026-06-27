@@ -1,0 +1,6 @@
+{"question":"What defines a mature AI stack?","relevant_sources":["maturity"]}
+{"question":"Why isn't a gateway's request log enough for observability?","relevant_sources":["observability"]}
+{"question":"How does hybrid retrieval work?","relevant_sources":["retrieval"]}
+{"question":"What makes evaluation a maturity signal?","relevant_sources":["evaluation"]}
+{"question":"How is provider choice kept out of application code?","relevant_sources":["gateway","maturity"]}
+{"question":"How are multiple specialist agents coordinated?","relevant_sources":["orchestration"]}

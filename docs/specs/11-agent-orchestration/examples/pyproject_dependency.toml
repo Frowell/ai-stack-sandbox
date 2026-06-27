@@ -1,0 +1,27 @@
+# ILLUSTRATIVE — proposed dependency addition to pyproject.toml. Not wired in.
+#
+# The resolved tree today is langgraph 1.2.6 + langgraph-checkpoint 4.1.1 +
+# langgraph-prebuilt 1.1.0 + langgraph-sdk 0.4.2, with NO postgres saver. The
+# PostgresSaver ships in a SEPARATE distribution and must be added explicitly, then
+# the lock re-resolved.
+
+[project]
+dependencies = [
+    "openai>=1.40",
+    "psycopg[binary]>=3.2",
+    "redis>=5.0",
+    "langgraph>=0.2.50",
+    "langgraph-checkpoint-postgres>=2.0",  # <-- NEW: brings langgraph.checkpoint.postgres
+    "opentelemetry-sdk>=1.27",
+    "opentelemetry-exporter-otlp-proto-http>=1.27",
+    "python-dotenv>=1.0",
+]
+
+# Implementation steps (first PR slice):
+#   uv add langgraph-checkpoint-postgres        # edits pyproject.toml + uv.lock
+#   uv sync --locked                            # CI-authoritative install (see spec 07)
+#   uv run python -c "import langgraph.checkpoint.postgres"   # acceptance smoke test
+#
+# Pin note (open question in README): confirm a langgraph-checkpoint-postgres version
+# compatible with langgraph 1.x whose setup()/get_state()/configurable={"thread_id"}
+# API matches what agent_multi.py uses. Adjust the lower bound after `uv lock` resolves.

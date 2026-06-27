@@ -1,0 +1,21 @@
+# ILLUSTRATIVE — spec for pyproject.toml, not wired in.
+#
+# The project is NON-PACKAGED ([tool.uv] package = false, no [build-system]), so
+# `pip install '.[rerank-local]'` (a PEP-621 extra) CANNOT work. Use a uv
+# dependency-group instead — add `rerank-local` alongside the existing `dev`
+# group. Default `uv sync` stays lean (no torch); cold-start/image unchanged.
+#
+#   uv sync                       # default: app deps only, no torch
+#   uv sync --group rerank-local  # opt in to the local cross-encoder backend
+#
+# Then commit the refreshed uv.lock (the group is locked but not installed by
+# default). Only the [dependency-groups] table changes:
+
+[dependency-groups]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+rerank-local = [
+    "sentence-transformers>=3.0",  # pulls torch transitively; heavy, opt-in only
+]
+
+# Nothing else in pyproject.toml changes. In particular, do NOT add `requests`
+# for the hosted backend — httpx is already transitively available via `openai`.

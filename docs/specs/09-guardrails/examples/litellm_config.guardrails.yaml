@@ -1,0 +1,79 @@
+# ILLUSTRATIVE — spec for gateway/litellm_config.yaml after this slice.
+# Only the additions are shown in full; the existing model_list is unchanged.
+# The app still calls the aliases `chat` / `embeddings` and names no scanner.
+
+model_list:
+  - model_name: chat
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: embeddings
+    litellm_params:
+      model: openai/text-embedding-3-small
+      api_key: os.environ/OPENAI_API_KEY
+
+litellm_settings:
+  drop_params: true
+  # Caching, guardrails, and logging callbacks attach here in a real deployment.
+
+# --- NEW: guardrails ---------------------------------------------------------
+# Each entry binds a CustomGuardrail subclass (dotted path resolves because
+# gateway/guardrails/ is mounted into the container and on PYTHONPATH) to a
+# phase via `mode`. Thresholds / entity lists / fail-mode are YAML, not code,
+# so a reviewer changes policy without touching app or gateway code.
+guardrails:
+  # 1) PII redaction on the OUTBOUND request — chat AND embeddings.
+  - guardrail_name: "pii-input"
+    litellm_params:
+      guardrail: guardrails.pii.PIIGuardrail       # VERIFY dotted-path resolution vs pinned litellm
+      mode: "pre_call"
+      enabled: os.environ/GUARDRAILS_ENABLED       # "true"/"false"; hook no-ops when false
+      fail_open: os.environ/GUARDRAIL_FAIL_OPEN    # default false (fail-closed)
+      timeout_ms: 300
+      entities: ["EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD", "PERSON"]
+      score_threshold: 0.5
+      # NOTE: the spaCy model is chosen at IMAGE BUILD (Dockerfile `spacy download`),
+      # not here — PIIGuardrail builds one module-level AnalyzerEngine. Don't pass a
+      # `spacy_model:` key: PIIGuardrail.__init__ doesn't pop it, so it would fall
+      # through to CustomGuardrail.__init__ and error.
+
+  # 2) Prompt-injection check on the request — chat only.
+  #    Scans the <untrusted_context> data channel AND the user question.
+  - guardrail_name: "prompt-injection"
+    litellm_params:
+      guardrail: guardrails.injection.PromptInjectionGuardrail
+      mode: "pre_call"
+      enabled: os.environ/GUARDRAILS_ENABLED
+      fail_open: os.environ/GUARDRAIL_FAIL_OPEN
+      timeout_ms: 300
+      data_delimiter: "untrusted_context"          # tag agent.py wraps retrieved context in
+
+  # 3) Output guardrail on the response — chat only. Redact PII; BLOCK on secrets.
+  - guardrail_name: "pii-output"
+    litellm_params:
+      guardrail: guardrails.pii.PIIGuardrail       # same class, post_call mode
+      mode: "post_call"
+      enabled: os.environ/GUARDRAILS_ENABLED
+      fail_open: os.environ/GUARDRAIL_FAIL_OPEN
+      timeout_ms: 300
+      entities: ["EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD", "PERSON"]
+      block_on_secret: true                        # secret-pattern hit => HTTP 400 block
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+
+# --- ALTERNATIVE (documented in design.md §1, OFF by default) -----------------
+# Built-in Presidio masking via sidecar containers instead of class (1)/(3):
+#   guardrails:
+#     - guardrail_name: "presidio-input"
+#       litellm_params:
+#         guardrail: presidio
+#         mode: "pre_call"
+#         pii_entities_config: {EMAIL_ADDRESS: "MASK", PHONE_NUMBER: "MASK", CREDIT_CARD: "MASK", PERSON: "MASK"}
+#   # requires PRESIDIO_ANALYZER_API_BASE / PRESIDIO_ANONYMIZER_API_BASE env
+#   # and presidio-analyzer + presidio-anonymizer services in compose.
+#   # Rejected as default: does not surface a redaction COUNT (AC: observability).
+#
+# --- HOSTED injection detector (config swap, OFF by default) ------------------
+#     - guardrail_name: "lakera-injection"
+#       litellm_params: {guardrail: lakera_v2, mode: "pre_call", api_key: os.environ/LAKERA_API_KEY}

@@ -1,0 +1,97 @@
+# ILLUSTRATIVE — a spec, not wired-in code.
+#
+# Shows the diff this feature makes to the real ./docker-compose.yml. Only the
+# changed services are reproduced; `redis` is unchanged. Lines marked NEW/CHANGED
+# are the deltas from the committed file. Do NOT copy this file in wholesale —
+# it exists so a reviewer can see the exact shape before implementation.
+
+services:
+  app:
+    # ... unchanged build/volumes/command/env_file ...
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/sandbox
+      REDIS_URL: redis://redis:6379/0
+      GATEWAY_BASE_URL: http://litellm:4000
+      # NEW: the app authenticates with a scoped virtual key, not the master key.
+      # Falls back to LITELLM_MASTER_KEY inside app/config.py when unset/blank,
+      # so first-run (pre-seed) still boots. See examples/app_config.py.
+      LITELLM_VIRTUAL_KEY: ${LITELLM_VIRTUAL_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      litellm:
+        # CHANGED: was `service_started`. The proxy now runs Prisma migrate on
+        # first boot, so the app (and `make ingest`/`make ask` right after
+        # `make up`) must wait until the proxy is actually ready, not just spawned.
+        condition: service_healthy
+    networks: [sandbox]
+
+  litellm:
+    # CHANGED: pin a known-good release instead of the moving `main-stable` tag.
+    # Key/budget semantics are version-sensitive (see README open questions/risks).
+    image: ghcr.io/berriai/litellm:v1.0.0   # VERIFY: replace with a real pinned release (and ideally a @sha256 digest, per spec 07)
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    ports: ["4000:4000"]
+    volumes:
+      - ./gateway/litellm_config.yaml:/app/config.yaml:ro
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-sandbox-master}
+      # NEW: persistence — virtual keys, budgets, and accumulated spend live here.
+      # Separate `litellm` database (NOT the app's `sandbox`) with its own role,
+      # created by db/init-litellm.sql on first postgres start.
+      DATABASE_URL: postgresql://litellm:litellm@postgres:5432/litellm
+      # NEW: rate-limit counters live in Redis so limits hold across replicas and
+      # survive a proxy restart. The `redis` service already exists; it just was
+      # not wired to the proxy before.
+      REDIS_HOST: redis        # VERIFY: some litellm versions take REDIS_URL instead
+      REDIS_PORT: "6379"
+    healthcheck:
+      # NEW: the `litellm` service had NO healthcheck before. Probe the DB-aware
+      # /health/readiness (NOT /health/liveliness) so `app: condition:
+      # service_healthy` only releases once Prisma `migrate deploy` has finished
+      # and the proxy can serve DB-backed traffic. /health/liveliness only means
+      # "process alive" and can pass mid-migrate, re-opening the very race this
+      # healthcheck exists to close (see README §1 / AC #8).
+      # Uses python (the image is a python app, so python is on PATH); avoids
+      # assuming curl/wget exist in the image.
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:4000/health/readiness', timeout=3).status==200 else 1)"]
+      # VERIFY: endpoint path is /health/readiness on the pinned litellm version.
+      interval: 5s
+      timeout: 4s
+      retries: 24          # generous: first boot includes the one-time Prisma migrate
+      start_period: 40s    # don't count failures during the migrate window
+    depends_on:
+      postgres:
+        # CHANGED: was implicit/none. Must wait for the DB to be healthy so the
+        # `litellm` database created by the init script actually exists before
+        # Prisma `migrate deploy` tries to connect.
+        condition: service_healthy
+    networks: [sandbox]
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sandbox
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # CHANGED: number the mounts so init order is deterministic. Both scripts run
+      # ONLY on first start against an EMPTY data volume (see rollout note in README).
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./db/init-litellm.sql:/docker-entrypoint-initdb.d/02-init-litellm.sql:ro   # NEW
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sandbox"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks: [sandbox]
+
+# volumes / networks unchanged.

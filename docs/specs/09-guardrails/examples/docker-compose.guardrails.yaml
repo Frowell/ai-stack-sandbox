@@ -1,0 +1,45 @@
+# ILLUSTRATIVE — the diff to the `litellm` service in docker-compose.yml.
+# Only the litellm service changes; postgres/redis/app are untouched.
+
+services:
+  litellm:
+    # BEFORE: image: ghcr.io/berriai/litellm:main-stable
+    # AFTER: build our thin image so guardrail classes + Presidio are present.
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    # No `command:` — the Dockerfile ENTRYPOINT (entrypoint.sh) warms Presidio/spaCy
+    # then `exec litellm --config /app/config.yaml --port 4000`.
+    ports: ["4000:4000"]
+    volumes:
+      - ./gateway/litellm_config.yaml:/app/config.yaml:ro
+      - ./gateway/guardrails:/app/guardrails:ro      # NEW: policy code, hot-swappable
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-sandbox-master}
+      GUARDRAILS_ENABLED: ${GUARDRAILS_ENABLED:-true}     # NEW
+      GUARDRAIL_FAIL_OPEN: ${GUARDRAIL_FAIL_OPEN:-false}  # NEW (dev-only escape hatch)
+    # NEW: gate "ready" on the warmed server (AC4). Because warmup runs in the
+    # entrypoint BEFORE litellm binds the port, a passing /health implies the
+    # analyzer is warm; the app's depends_on should use condition: service_healthy.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:4000/health/liveliness || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks: [sandbox]
+    # NOTE: in docker-compose.yml also change the `app` service's
+    #   depends_on.litellm.condition: service_started  ->  service_healthy
+    # so the first app call can't race the cold-start warmup.
+
+# --- ALTERNATIVE (design.md §1, Option B): Presidio sidecars instead of the
+#     in-container build. Off by default; shown for completeness. -------------
+#   presidio-analyzer:
+#     image: mcr.microsoft.com/presidio-analyzer:latest
+#     networks: [sandbox]
+#   presidio-anonymizer:
+#     image: mcr.microsoft.com/presidio-anonymizer:latest
+#     networks: [sandbox]
+#   # then on litellm: environment PRESIDIO_ANALYZER_API_BASE/ANONYMIZER_API_BASE

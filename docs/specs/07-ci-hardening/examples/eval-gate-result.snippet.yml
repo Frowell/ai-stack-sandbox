@@ -1,0 +1,47 @@
+# ILLUSTRATIVE — the summary job in isolation, annotated against the truth table
+# in ../design.md §3. This is the only eval-related REQUIRED check.
+#
+# Required-check name coupling (verify before marking required):
+#   gate-check                 (job)      — emits outputs.enabled
+#   gate-check.outputs.enabled (output)   — "true" | "false"
+#   eval-gate                  (job)      — the conditional gate
+#   eval-gate-result           (job)      — THIS job (required)
+# All four confirmed against main:.github/workflows/ci.yml.
+
+eval-gate-result:
+  needs: [gate-check, eval-gate]
+  if: always()                       # MUST always run, or a required check goes
+                                     # missing and wedges the PR (design.md §1)
+  runs-on: ubuntu-latest
+  env:
+    GATE_CHECK: ${{ needs.gate-check.result }}   # success | failure | cancelled | skipped
+    RESULT:     ${{ needs.eval-gate.result }}    # success | failure | cancelled | skipped
+    ENABLED:    ${{ needs.gate-check.outputs.enabled }}  # "true" | "false" | "" (malformed -> fail closed)
+  steps:
+    - run: |
+        set -euo pipefail        # AC #5: strict shell
+
+        # Row E — gate-check errored/cancelled: ENABLED is untrusted -> FAIL CLOSED.
+        if [ "$GATE_CHECK" != "success" ]; then
+          echo "gate-check did not succeed ($GATE_CHECK) — failing closed"; exit 1
+        fi
+
+        # Row G — malformed signal: gate-check succeeded but `enabled` is neither
+        # "true" nor "false" (empty/garbage). Treating it as "disabled" would
+        # silently pass a skipped gate, so FAIL CLOSED.
+        if [ "$ENABLED" != "true" ] && [ "$ENABLED" != "false" ]; then
+          echo "gate-check emitted unexpected enabled=$ENABLED — failing closed"; exit 1
+        fi
+
+        # Row B — gate ran green.
+        # Row A — intentionally disabled (no secret / fork): ENABLED=false AND skipped.
+        if [ "$RESULT" = "success" ] || { [ "$ENABLED" = "false" ] && [ "$RESULT" = "skipped" ]; }; then
+          echo "eval gate ok (result=$RESULT, enabled=$ENABLED)"; exit 0
+        fi
+
+        # Rows C (regression), D (lint-failed double-block), F (cancelled): FAIL.
+        echo "eval gate failed: result=$RESULT enabled=$ENABLED"; exit 1
+
+# Why env-not-interpolation (AC #5): a job output containing shell metacharacters
+# spliced directly via ${{ }} into the script body is a command-injection vector.
+# Reading from env keeps the value as data, never code.

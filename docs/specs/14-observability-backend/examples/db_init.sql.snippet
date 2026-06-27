@@ -1,0 +1,16 @@
+-- ILLUSTRATIVE — spec for spec 14, not wired-in code.
+-- APPEND this to db/init.sql (the fresh-stack path). NOTE: init.sql only runs on
+-- an EMPTY pgdata volume, so this alone does NOT create the table on an existing
+-- volume — app/evals.py also runs `CREATE TABLE IF NOT EXISTS` at runtime to
+-- cover already-populated volumes. Both paths use the same DDL.
+
+CREATE TABLE IF NOT EXISTS eval_results (
+    id        BIGSERIAL PRIMARY KEY,
+    run_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    suite     TEXT,        -- the golden-set path, e.g. evals/golden.jsonl
+    question  TEXT,
+    score     NUMERIC,
+    passed    BOOLEAN,
+    trace_id  TEXT,        -- always set (provider is ALWAYS_ON, exporter-independent)
+    trace_url TEXT         -- NULL when no OTEL_TRACE_URL_TEMPLATE / backend configured
+);

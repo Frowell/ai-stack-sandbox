@@ -1,0 +1,25 @@
+# ILLUSTRATIVE — spec for gateway/litellm_config.yaml, not wired in.
+# Add ONE `rerank` model entry alongside the existing `chat` / `embeddings`
+# entries. The app calls the alias `rerank`; the provider + key live here, never
+# in the app — same decoupling as chat/embeddings. Swapping Cohere -> Voyage is
+# an edit to THIS file plus the matching key in the gateway env. No app changes.
+
+model_list:
+  # ... existing `chat` and `embeddings` entries unchanged ...
+
+  # --- rerank (default: Cohere) ---
+  - model_name: rerank
+    litellm_params:
+      model: cohere/rerank-english-v3.0
+      api_key: os.environ/COHERE_API_KEY
+
+  # --- rerank via Voyage instead: set VOYAGE_API_KEY, comment the block above,
+  #     uncomment this one. No application code changes. That is the seam. ---
+  # - model_name: rerank
+  #   litellm_params:
+  #     model: voyage/rerank-2
+  #     api_key: os.environ/VOYAGE_API_KEY
+
+# litellm_settings / general_settings unchanged. The gateway exposes the rerank
+# route at /rerank (also /v1/rerank); app/gateway.rerank() pins /rerank and the
+# contract test asserts that path so a gateway upgrade can't silently 404.

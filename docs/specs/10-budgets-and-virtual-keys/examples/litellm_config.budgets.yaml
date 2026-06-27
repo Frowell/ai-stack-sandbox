@@ -1,0 +1,35 @@
+# ILLUSTRATIVE — a spec, not wired-in code. Mirrors gateway/litellm_config.yaml.
+#
+# Only the settings blocks change; the model_list (chat/embeddings aliases) is
+# UNCHANGED — virtual keys are scoped to those alias names, never to provider
+# models. Reproduced here with the new blocks marked NEW so the delta is clear.
+
+model_list:
+  - model_name: chat
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: embeddings
+    litellm_params:
+      model: openai/text-embedding-3-small
+      api_key: os.environ/OPENAI_API_KEY
+
+litellm_settings:
+  drop_params: true
+  # NEW: default spend budget + reset period applied to keys that don't override
+  # it. The seed script (examples/seed_keys.py) also sets these per-key explicitly
+  # so the demo key has a *tiny* budget regardless of this default.
+  max_budget: 0.50            # USD; VERIFY key name on the pin (litellm_settings.max_budget)
+  budget_duration: 30d        # monthly reset (README open question: monthly vs rolling vs daily)
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  # NEW: turn the proxy from stateless pass-through into a DB-backed control point.
+  database_url: os.environ/DATABASE_URL   # VERIFY: some versions read DATABASE_URL from env directly; this makes it explicit
+  # store_model_in_db: false              # keep model_list authoritative in this yaml, not the DB
+
+# NEW: wire rate-limit counters to Redis so RPM/TPM are enforced consistently and
+# survive a proxy restart (counters in Redis, not proxy memory).
+router_settings:
+  redis_host: os.environ/REDIS_HOST       # VERIFY: redis_host/redis_port vs redis_url differs across versions
+  redis_port: os.environ/REDIS_PORT

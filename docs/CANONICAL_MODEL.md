@@ -148,11 +148,17 @@ documents.meta = {
   "doc": "<source>",
   "format": "pdf",
   "section": "Mature Stacks > Observability",
-  "footnotes": ["otel", "graph"],   // ids merged into this chunk
+  "footnotes": ["b8", "b9"],        // footnote BLOCK ids merged into this chunk
   "blocks": ["b8", "b9"],           // canonical block ids in this chunk
   "page": 3                          // from the chunk's leading block locator
 }
 ```
+
+> **One id-space (v1).** `meta.footnotes`, `relation.to_id`, and `meta.blocks`
+> are all the **block-id** namespace. Human marker keys (e.g. `otel`) are
+> presentation-only and live in `Block.attrs.marker`, never in an id or in
+> `meta.footnotes`. An earlier draft of this doc mixed marker keys into
+> `meta.footnotes` (`["otel","graph"]`); that is corrected above.
 
 Retrieval already returns `content`; with this, the generate step can cite
 section + page provenance, which is the concrete enabler for the

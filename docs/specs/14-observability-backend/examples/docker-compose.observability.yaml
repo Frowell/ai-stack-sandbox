@@ -1,0 +1,72 @@
+# ILLUSTRATIVE — spec for spec 14, not wired-in code.
+#
+# These services MERGE INTO the existing docker-compose.yml. They are
+# profiles:-gated so the core four-container stack (app, litellm, postgres,
+# redis) is unaffected by a plain `make up`. Bring the backend up with:
+#
+#   docker compose --profile observability up -d
+#
+# DEFAULT backend: Langfuse (its scores API delivers Goal 4, trace -> result).
+# ALTERNATIVE:     Phoenix (single container, OTLP-only, no scores) — see below.
+#
+# CRITICAL (host-execution caveat): `make ask` / `make eval` run on the HOST via
+# `uv run`, NOT `docker compose exec app`. So the backend MUST publish its OTLP
+# port to the host, and .env must point OTEL_EXPORTER_OTLP_ENDPOINT at
+# http://localhost:<published-port> — NOT the compose service name.
+
+services:
+  # ---------------------------------------------------------------------------
+  # DEFAULT: Langfuse v3 (self-hosted). Heavier (needs its own Postgres +
+  # ClickHouse + Redis + object store), hence profiles-gated. Pre-provisioned via
+  # LANGFUSE_INIT_* so the project id + dev keys are known ahead of time (zero
+  # click-through). Ports/volumes/companions below are a sketch — pin exact image
+  # tags + the full v3 companion set (clickhouse, minio) from Langfuse's
+  # self-host compose at implementation time.
+  # ---------------------------------------------------------------------------
+  langfuse:
+    image: langfuse/langfuse:3            # pin to a concrete tag at impl time
+    profiles: ["observability"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3000:3000"                       # UI + OTLP ingest (publish to host!)
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Reuse the sandbox Postgres for Langfuse metadata (separate DB).
+      # NOTE: the `langfuse` database does NOT exist by default — the image's
+      # POSTGRES_DB only creates `sandbox`. You MUST provision it, e.g. add a
+      # `CREATE DATABASE langfuse;` init script to /docker-entrypoint-initdb.d/
+      # (fresh volumes only) or run it once by hand, OR — recommended for v3,
+      # which runs heavy migrations — give Langfuse its OWN Postgres service.
+      # Either way it must never share the `sandbox` DB (see README DB-isolation risk).
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/langfuse
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-dev-only-secret}
+      SALT: ${LANGFUSE_SALT:-dev-only-salt}
+      # --- Pre-provision so OTLP accepts traces immediately (no manual setup) ---
+      LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-sandbox-org}
+      LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_INIT_PROJECT_ID:-sandbox-project}
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_INIT_PROJECT_PUBLIC_KEY:-pk-lf-sandbox}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_INIT_PROJECT_SECRET_KEY:-sk-lf-sandbox}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-dev@example.com}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-dev-only-password}
+    networks: [sandbox]
+    # NOTE: a real v3 deploy also needs clickhouse + redis + minio services here.
+    # They are part of the profile but elided in this sketch.
+
+  # ---------------------------------------------------------------------------
+  # ALTERNATIVE: Phoenix. Single container, no bootstrap, OTLP-native. Select by
+  # using THIS service + the Phoenix .env lines (commented set in
+  # env.example.snippet) and leaving EVAL_SCORE_SINK=noop (Phoenix has no scores
+  # API, so the trace -> result direction is N/A).
+  # ---------------------------------------------------------------------------
+  phoenix:
+    image: arizephoenix/phoenix:latest    # pin to a concrete tag at impl time
+    profiles: ["observability-phoenix"]
+    ports:
+      - "6006:6006"                       # UI
+      - "4318:4318"                       # OTLP/HTTP ingest (publish to host!)
+    networks: [sandbox]

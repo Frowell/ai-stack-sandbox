@@ -1,0 +1,8 @@
+# ILLUSTRATIVE targets — ADDED to the repo Makefile (alongside `eval`, `test`).
+# Mirror the existing `eval:` target's style (uv run python -m ...).
+
+eval-safety:   ## run the adversarial/safety gate (non-zero exit on ASR regression)
+	uv run python -m app.evals --safety --subset blocking
+
+safety-baseline: ## (re)record evals/redteam_baseline.json -- deliberate, reviewed action
+	uv run python -m app.evals --safety --record-baseline

@@ -1,0 +1,18 @@
+# ILLUSTRATIVE snippet for spec 13 — the dependency line to add to pyproject.toml.
+# pydantic 2.13.4 is ALREADY resolved transitively in uv.lock (via langgraph),
+# but it is NOT a declared direct dependency. Declare it so it is intentional,
+# not accidental, and pin >=2 so a resolver can't drop to a v1 line that lacks
+# model_validate_json / model_json_schema. After editing, re-lock with `uv lock`
+# (spec 07's CI runs `uv sync --locked` and FAILS on lock drift).
+
+[project]
+dependencies = [
+    "openai>=1.40",
+    "psycopg[binary]>=3.2",
+    "redis>=5.0",
+    "langgraph>=0.2.50",
+    "opentelemetry-sdk>=1.27",
+    "opentelemetry-exporter-otlp-proto-http>=1.27",
+    "python-dotenv>=1.0",
+    "pydantic>=2",          # <-- ADDED: structured outputs (spec 13); was transitive-only
+]

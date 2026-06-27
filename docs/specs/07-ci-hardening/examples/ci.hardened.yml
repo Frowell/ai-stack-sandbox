@@ -1,0 +1,143 @@
+# ILLUSTRATIVE — target shape of .github/workflows/ci.yml after hardening.
+# This is a SPEC, not wired-in code. <...> are placeholders to resolve at
+# implementation time (see ../design.md §5). Diff against the live merged file
+# (main:.github/workflows/ci.yml) before applying. Changes vs. the merged file
+# are flagged with `# HARDENED:` comments; everything else is unchanged.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read            # already minimal — keep
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@<sha>        # HARDENED: pin @v4 -> commit SHA   # v4.x.y
+      - uses: astral-sh/setup-uv@<sha>      # HARDENED: pin @v5 -> commit SHA   # v5.x.y
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"  # HARDENED: key cache on the lock
+      - run: uv lock --check                # HARDENED: fast, explicit drift failure
+      - run: uv sync --locked               # HARDENED: was `uv sync` (re-resolved silently)
+      - run: uv run ruff check .
+
+  # Secrets cannot be referenced in a job-level `if:`, so expose presence as an
+  # output that downstream jobs can gate on. (Unchanged from merged PR #3.)
+  gate-check:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        env:
+          KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -n "$KEY" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false (OPENAI_API_KEY not set; eval gate will be skipped)"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  eval-gate:
+    needs: [lint, gate-check]
+    if: needs.gate-check.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16@sha256:<digest>   # HARDENED: pin tag -> digest
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: sandbox
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sandbox"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/sandbox
+      GATEWAY_BASE_URL: http://localhost:4000
+      LITELLM_MASTER_KEY: sk-ci-master
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@<sha>        # HARDENED   # v4.x.y
+      - uses: astral-sh/setup-uv@<sha>      # HARDENED   # v5.x.y
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"  # HARDENED
+      - run: uv sync --locked               # HARDENED: was `uv sync`
+
+      - name: Create vector schema
+        run: >-
+          uv run python -c "import os, psycopg;
+          sql = open('db/init.sql').read();
+          conn = psycopg.connect(os.environ['DATABASE_URL'], autocommit=True);
+          [conn.execute(s) for s in sql.split(';') if s.strip()];
+          print('schema ready')"
+
+      - name: Start LiteLLM gateway
+        run: |
+          set -euo pipefail
+          # HARDENED: pin a RELEASE-tagged digest, not main-stable (see design.md §5)
+          docker run -d --name litellm --network host \
+            -e OPENAI_API_KEY -e LITELLM_MASTER_KEY \
+            -v "$PWD/gateway/litellm_config.yaml:/app/config.yaml:ro" \
+            ghcr.io/berriai/litellm:v1.74.0@sha256:<digest> \
+            --config /app/config.yaml --port 4000
+          echo "waiting for gateway..."
+          for i in $(seq 1 40); do
+            if curl -fsS http://localhost:4000/health/liveliness >/dev/null; then
+              echo "gateway up"; exit 0
+            fi
+            sleep 3
+          done
+          echo "gateway did not become healthy"; docker logs litellm | tail -50; exit 1
+
+      - name: Ingest corpus
+        run: uv run python -m app.ingest
+
+      - name: Eval gate (pytest)
+        run: uv run pytest -q
+
+      - name: Gateway logs on failure
+        if: failure()
+        run: docker logs litellm 2>&1 | tail -80 || true
+
+  # HARDENED (new): the ONLY eval-related required check. Always runs; collapses
+  # upstream conclusions into one deterministic pass/fail; FAILS CLOSED.
+  eval-gate-result:
+    needs: [gate-check, eval-gate]   # deliberately NOT lint — see design.md §2
+    if: always()
+    runs-on: ubuntu-latest
+    env:
+      # Pass job outputs via env; never interpolate ${{ }} into the shell body.
+      GATE_CHECK: ${{ needs.gate-check.result }}
+      RESULT:     ${{ needs.eval-gate.result }}
+      ENABLED:    ${{ needs.gate-check.outputs.enabled }}
+    steps:
+      - run: |
+          set -euo pipefail
+          if [ "$GATE_CHECK" != "success" ]; then
+            echo "gate-check did not succeed ($GATE_CHECK) — failing closed"; exit 1
+          fi
+          # FAIL CLOSED on a malformed signal: `enabled` must be exactly "true" or
+          # "false". Empty/garbage (e.g. a future gate-check edit that forgets to
+          # emit on some path) must NOT be treated as "disabled" — that would
+          # silently green-light a skipped gate (README AC; design.md §3 row G).
+          if [ "$ENABLED" != "true" ] && [ "$ENABLED" != "false" ]; then
+            echo "gate-check emitted unexpected enabled=$ENABLED — failing closed"; exit 1
+          fi
+          if [ "$RESULT" = "success" ] || { [ "$ENABLED" = "false" ] && [ "$RESULT" = "skipped" ]; }; then
+            echo "eval gate ok (result=$RESULT, enabled=$ENABLED)"; exit 0
+          fi
+          echo "eval gate failed: result=$RESULT enabled=$ENABLED"; exit 1

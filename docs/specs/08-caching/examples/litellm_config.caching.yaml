@@ -1,0 +1,57 @@
+# ILLUSTRATIVE — a spec, not wired-in config.
+# Shows how gateway/litellm_config.yaml would gain response caching. The model_list
+# is unchanged from the real file; only the litellm_settings block grows. Do NOT
+# copy this verbatim into the running stack — confirm the `cache_params.type` and
+# semantic field names against the PINNED litellm image first (see design.md §2).
+
+model_list:
+  # --- unchanged from the real gateway/litellm_config.yaml ---
+  - model_name: chat
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: embeddings
+    litellm_params:
+      model: openai/text-embedding-3-small
+      api_key: os.environ/OPENAI_API_KEY
+
+litellm_settings:
+  drop_params: true            # unchanged
+
+  # ===========================================================================
+  # DEFAULT STATE — exact-match response caching (always correct, on by default).
+  # A byte-identical repeat is served from Redis with no provider call.
+  # ===========================================================================
+  cache: true
+  cache_params:
+    type: redis                # single switch (design.md §2): redis | redis-semantic
+    # The litellm SERVICE must be able to reach Redis. docker-compose.yml today
+    # only gives `app` a REDIS_URL — see examples/docker-compose.caching.yaml.
+    host: os.environ/REDIS_HOST          # e.g. "redis" on the sandbox network
+    port: os.environ/REDIS_PORT          # "6379"
+    ttl: 600                             # seconds — bounds stale-answer blast radius (design.md §8)
+    # namespace: os.environ/CACHE_NAMESPACE   # bump on re-ingestion to invalidate (design.md §8)
+    # supported_call_types: ["acompletion", "completion"]  # scope to chat; avoid recursing on embeddings (design.md §10)
+
+  # ===========================================================================
+  # OPT-IN STATE — semantic caching. OFF by default; enable per-environment ONLY
+  # after threshold tuning shows zero eval regression. Replace the cache_params
+  # block above with this one (it is a SWITCH, not an additional layer).
+  # ===========================================================================
+  # cache: true
+  # cache_params:
+  #   type: redis-semantic
+  #   host: os.environ/REDIS_HOST
+  #   port: os.environ/REDIS_PORT
+  #   ttl: 600
+  #   similarity_threshold: 0.95   # start conservative; relax only if evals stay green (open question)
+  #   redis_semantic_cache_embedding_model: embeddings   # reuse the existing alias for the lookup
+  #   # FIELD NAMES ARE VERSION-SENSITIVE — confirm against the pinned image (design.md §2).
+  #
+  # NOTE for the AC-6 positive control (`gateway_semantic` fixture): that test
+  # variant pins `temperature: 0` on the `chat` model in `model_list` (same as
+  # litellm_config.eval.yaml) so the only thing that can make the mutate-corpus pair
+  # equal (a1 == a2) is the stale semantic hit — not LLM noise (testing.md AC-6).
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY   # unchanged

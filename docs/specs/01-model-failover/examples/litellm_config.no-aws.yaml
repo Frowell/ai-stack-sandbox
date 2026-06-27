@@ -1,0 +1,50 @@
+# ILLUSTRATIVE — no-AWS config the smoke test mounts (a spec, not wired in).
+# Same router_settings/fallbacks as the production config, but every deployment is
+# OpenAI so CI/devs need no AWS account.
+#
+# DELIBERATE structural difference vs production: `chat` here is a SINGLE (dead)
+# deployment + `chat-standby`, NOT production's active/active two `chat` entries.
+# A second *healthy* `chat` deployment would be served directly by the router
+# (active/active) and the smoke assertion "served == standby" would never fire;
+# collapsing `chat` to one dead deployment forces the ordered-fallback path.
+#
+# The "kill mechanism" is config-only: the primary `chat` deployment points at a
+# dead api_base, so its calls fail at connect. The router ejects it (allowed_fails:
+# 1) and falls back to the standby. The smoke test asserts the served deployment
+# via x-litellm-model-id == "chat-standby-openai".
+
+model_list:
+  # --- primary: deliberately broken (dead api_base => fails at connect) -------
+  - model_name: chat
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
+      api_base: http://127.0.0.1:1        # unreachable: the documented kill switch
+    model_info:
+      id: chat-primary-dead
+
+  # --- standby: healthy OpenAI deployment, re-aliased for pinning -------------
+  - model_name: chat-standby
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
+    model_info:
+      id: chat-standby-openai
+
+  - model_name: embeddings
+    litellm_params:
+      model: openai/text-embedding-3-small
+      api_key: os.environ/OPENAI_API_KEY
+
+litellm_settings:
+  drop_params: true
+
+router_settings:
+  num_retries: 1
+  allowed_fails: 1
+  cooldown_time: 30
+  fallbacks:
+    - chat: ["chat-standby"]
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

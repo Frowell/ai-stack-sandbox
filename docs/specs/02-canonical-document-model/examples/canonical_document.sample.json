@@ -1,0 +1,38 @@
+{
+  "_comment": "ILLUSTRATIVE ONLY. A serialized v1 canonical Document. This corrects CANONICAL_MODEL.md's worked example, which is internally inconsistent (relation to_id 'b3' vs meta.footnotes ['otel']). v1 uses ONE id-space: footnotes are referenced by BLOCK ID everywhere; the human marker 'otel' lives in attrs only.",
+  "schema_version": "1",
+  "source": "sample",
+  "format": "markdown",
+  "meta": { "title": "Mature AI Stacks" },
+  "blocks": [
+    {
+      "id": "b1",
+      "type": "heading",
+      "level": 2,
+      "text": "Observability",
+      "locator": { "path": "Mature AI Stacks > Observability" }
+    },
+    {
+      "id": "b2",
+      "type": "paragraph",
+      "text": "Observability sits beside the hot path[^otel]."
+    },
+    {
+      "id": "b3",
+      "type": "footnote",
+      "text": "OpenTelemetry GenAI semantic conventions, exported over OTLP.",
+      "attrs": { "marker": "otel" }
+    }
+  ],
+  "relations": [
+    { "type": "footnote_ref", "from_id": "b2", "to_id": "b3" }
+  ],
+  "_chunk_meta_would_be": {
+    "schema_version": "1",
+    "doc": "sample",
+    "format": "markdown",
+    "section": "Mature AI Stacks > Observability",
+    "footnotes": ["b3"],
+    "blocks": ["b1", "b2"]
+  }
+}

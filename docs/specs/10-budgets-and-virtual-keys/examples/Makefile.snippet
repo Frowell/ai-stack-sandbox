@@ -1,0 +1,14 @@
+# ILLUSTRATIVE — add to the .PHONY line and body of the real Makefile.
+#
+# .PHONY: up down ingest ask eval test logs psql shell seed   <- add `seed`
+
+seed:      ## idempotently mint the app's scoped virtual key and write LITELLM_VIRTUAL_KEY to .env
+	uv run python -m scripts.seed_keys $(ARGS)
+
+# Notes:
+#   * Run AFTER `make up` — the proxy must be healthy (it just migrated its DB).
+#     `make up` already waits on postgres health; with this feature the app also
+#     waits on `litellm` health, so `make up && make seed` is race-free.
+#   * Re-running `make seed` is a no-op once the key exists and .env has it.
+#   * `make seed ARGS=--rotate` (or `uv run python -m scripts.seed_keys --rotate`)
+#     replaces the key if it was lost/rotated.

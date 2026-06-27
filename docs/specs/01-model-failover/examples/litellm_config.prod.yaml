@@ -1,0 +1,66 @@
+# ILLUSTRATIVE — production-shaped target for gateway/litellm_config.yaml.
+# This is a spec, not a wired-in config. It shows the same-model, multi-provider
+# failover layout. Requires ANTHROPIC_API_KEY + AWS creds; see env.example.snippet.
+#
+# Provider choice is still a config decision — the app calls the `chat` alias and
+# never names a provider (see app/gateway.py).
+
+model_list:
+  # --- chat: active/active across two providers of the SAME model ----------
+  # Both deployments are claude-sonnet-4-6 (identical weights => identical
+  # behavior contract). LiteLLM's router load-balances across all entries that
+  # share `model_name: chat`. Each entry pins a stable, human-readable
+  # model_info.id so x-litellm-model-id is assertable (not a per-process UUID).
+  - model_name: chat
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+    model_info:
+      id: chat-anthropic
+
+  - model_name: chat
+    litellm_params:
+      model: bedrock/anthropic.claude-sonnet-4-6
+      aws_region_name: os.environ/AWS_REGION_NAME
+    model_info:
+      id: chat-bedrock
+
+  # --- chat-standby: the SAME Bedrock model, re-aliased so it is individually
+  #     addressable (pinning). Load-balancing across `chat` cannot pin one
+  #     deployment; this alias is the handle the eval gate (CHAT_MODEL=chat-standby)
+  #     and the smoke test use. Same model_info.id => same served-deployment label.
+  - model_name: chat-standby
+    litellm_params:
+      model: bedrock/anthropic.claude-sonnet-4-6
+      aws_region_name: os.environ/AWS_REGION_NAME
+    model_info:
+      id: chat-bedrock
+
+  # --- embeddings: unchanged. NOT failed over to a different model — a different
+  #     embedding model lands vectors in a different space and silently corrupts
+  #     retrieval (see README non-goals / design.md). Same-model standby only.
+  - model_name: embeddings
+    litellm_params:
+      model: openai/text-embedding-3-small
+      api_key: os.environ/OPENAI_API_KEY
+
+litellm_settings:
+  drop_params: true            # drop params one provider doesn't support (no 400).
+                               # Does NOT reconcile max_tokens/tokenizer/schema —
+                               # those match only because both are the same model.
+
+router_settings:
+  # Health + ejection: a failing deployment is put in cooldown and removed from
+  # rotation rather than retried inline on every request (which turns an outage
+  # into a latency incident). Values chosen to make the smoke test deterministic.
+  num_retries: 1
+  allowed_fails: 1
+  cooldown_time: 30
+  # Ordered fallback, co-located with the other router knobs so all failover
+  # behavior is in one lint-checkable block. "If the whole chat class is down,
+  # go to chat-standby next."
+  fallbacks:
+    - chat: ["chat-standby"]
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

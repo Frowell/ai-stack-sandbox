@@ -1,0 +1,35 @@
+# ILLUSTRATIVE — a spec, not wired-in config.
+# CI-ONLY gateway config used by the eval-gate job to BYPASS every cache layer
+# (design.md §3). Identical model_list to the production config; caching simply
+# absent. The eval-gate job's `docker run ... ghcr.io/berriai/litellm ... --config`
+# step (see 07-ci-hardening) points --config at THIS file instead of the cached one.
+#
+# Why a whole separate config instead of a per-request no-cache hint: app/evals.py
+# calls ask(), whose LangGraph path (generate_node -> chat()) accepts no per-call
+# kwargs, so a `cache: {"no-cache": true}` hint cannot thread through the agent
+# (design.md §3). A caching-off config provably bypasses exact AND semantic for
+# BOTH the agent and the LLM-judge, with zero app change.
+
+model_list:
+  - model_name: chat
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
+      # temperature pinned HERE (not via an ask() kwarg — that can't thread through
+      # ask()->generate_node->chat(), design.md §3). With temperature: 0 the
+      # AC-6 caching-OFF leg differs ONLY because the corpus changed, not from LLM
+      # noise. The semantic positive-control config pins it the same way.
+      temperature: 0
+  - model_name: embeddings
+    litellm_params:
+      model: openai/text-embedding-3-small
+      api_key: os.environ/OPENAI_API_KEY
+
+litellm_settings:
+  drop_params: true
+  # No `cache: true`. No cache_params. Nothing is served from a stored response.
+  # (Provider-side prompt caching may still discount input tokens — that never
+  #  returns a stored answer, so it cannot mask a regression. design.md §1.)
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
